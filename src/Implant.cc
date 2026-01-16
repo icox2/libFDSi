@@ -5,11 +5,11 @@
 #include "Implant.hh"
 
 namespace FDSi {
-  ImplantEvent::ImplantEvent(int nst, bool sipm) {
+  ImplantEvent::ImplantEvent(int nst, bool sipm, bool dssd_pres) {
     nPins = 4;
     nScints = 2;
     nPPACs = 6;
-    Init(nst, sipm);
+    Init(nst, sipm, dssd_pres);
   }
 
   ImplantEvent::ImplantEvent() {
@@ -26,7 +26,7 @@ namespace FDSi {
     Init(2000, false);
   }
 
-  void ImplantEvent::Init(int nst, bool sipm) {
+  void ImplantEvent::Init(int nst, bool sipm, bool dssd_pres) {
     for (int cr=0; cr<FD_MAX_CRATES; ++cr) {
       for (int sl=0; sl<FD_MAX_SLOTS_PER_CRATE; ++sl) {
         for (int ch=0; ch<FD_MAX_CHANNELS_PER_BOARD; ++ch) {
@@ -37,6 +37,7 @@ namespace FDSi {
       }
     }
     sipm_present = sipm;
+    dssd_present = dssd_pres;
     fit = new IonTrigger();
     rit = new IonTrigger();
     for (int i=0; i<nPins; ++i) {
@@ -50,11 +51,18 @@ namespace FDSi {
     }
 
     nStored = nst;
-    if (!sipm) {
+    if (!sipm && !dssd_pres) {
       imps = new Implant[nStored];
       imp = &imps[0];
       betas = new Beta[nStored];
       beta = &betas[0];
+    }
+    else if (dssd_pres) {
+      dssd = new DSSD();
+      dssdImps = new DSSDImplant[nStored];
+      dssdImp = &dssdImps[0];
+      dssdBetas = new DSSDBeta[nStored];
+      dssdBeta = &dssdBetas[0];
     }
     else {
       sipmImps = new SiPMImplant[nStored];
@@ -99,6 +107,9 @@ namespace FDSi {
       else if (name == "sipmimp") { 
         implantMap[crID][slID][chID] = (ImplantChannel**)&sipmImp;
       }
+      else if (name == "dssd") {
+        implantMap[crID][slID][chID] = (ImplantChannel**)&dssd;
+      }
       else if (name == "fit") {
         implantMap[crID][slID][chID] = (ImplantChannel**)&fit;
       }
@@ -134,12 +145,26 @@ namespace FDSi {
     }
   }
 
+  void ImplantEvent::SetDSSDThresh(int indx, float val) {
+    int dssdnum = indx/(MAX_DSSD_STRIPS*NUM_GAINS);
+    int gain = (indx/MAX_DSSD_STRIPS)%NUM_GAINS;
+    int strip = indx%MAX_DSSD_STRIPS;
+    dssd->thresh[dssdnum][gain][strip] = val;
+  }
+
   void ImplantEvent::Reset() {
-    if (!sipm_present) {
+    if (!sipm_present && !dssd_present) {
       beta = &betas[betaCtr];
       imp = &imps[impCtr];
       beta->Reset();
       imp->Reset();
+    }
+    else if (dssd_present) {
+      dssdBeta = &dssdBetas[betaCtr];
+      dssdImp = &dssdImps[impCtr];
+      dssd->Reset();
+      dssdBeta->Reset();
+      dssdImp->Reset();
     }
     else {
       sipmImp = &sipmImps[sipmImpCtr];
@@ -366,6 +391,149 @@ namespace FDSi {
     }
   }
 
+  DSSD::DSSD() {
+    hits.clear();
+  }
+
+  void DSSD::SetMeas(PIXIE::Measurement &meas, int indx) {
+    DSSDhit hit;
+    hit.energy = meas.eventEnergy;
+    hit.time = meas.eventTime;
+    hit.indx = indx;
+    hits.push_back(hit);
+    return;
+  }
+
+  void DSSD::DSSDHitAnalysis(DSSDBeta *beta, DSSDImplant *implant) {
+    // Analyze the hits stored in hits vector and fill beta and implant info
+    
+    // Variables related to implant
+    double lg_tke = 0.;
+    double lg_last_e = -1;
+    int lg_last_y = -1;
+    unsigned long long lg_last_t = 0; // last dssd stopped should correspond to implant time
+    // finds the last dssd hit -> determines zpos
+    int lg_e_zind = -1;
+
+    double e_max[NUM_GAINS] = {-1};
+    int e_max_zloc[NUM_GAINS] = {-1};
+    int e_max_strip[NUM_GAINS] = {-1};
+    unsigned long long e_max_time[NUM_GAINS] = {0};
+    
+    double max_x_en[MAX_DSSDS] = {0};
+    double max_y_en[MAX_DSSDS] = {0};
+    int xpos[MAX_DSSDS] = {-1};
+    int ypos[MAX_DSSDS] = {-1};
+
+
+    for (auto &hit : hits) {
+      // 0 is most upstream
+      int dssdnum = hit.indx/(MAX_DSSD_STRIPS*NUM_GAINS);
+      // 0=HG, 1=MG, 2=LG
+      int gain = (hit.indx/MAX_DSSD_STRIPS)%NUM_GAINS;
+      int strip = hit.indx%MAX_DSSD_STRIPS;
+
+
+      if(e_max[gain] < hit.energy) {
+        e_max[gain] = hit.energy;
+        e_max_zloc[gain] = dssdnum;
+        e_max_strip[gain] = strip;
+        e_max_time[gain] = hit.time;
+      }
+
+      // X position
+      if(gain ==0) {
+        if(hit.energy > max_x_en[dssdnum]) {
+          max_x_en[dssdnum] = hit.energy;
+          xpos[dssdnum] = strip;
+        }
+      }
+      else if(gain ==1) { // Y position for decay, can be changed to LG for implant
+        if(hit.energy > max_y_en[dssdnum]) {
+          max_y_en[dssdnum] = hit.energy;
+          ypos[dssdnum] = strip;
+        }
+      }
+
+      if(gain ==2) {
+        lg_tke += hit.energy;
+        if(dssdnum > lg_e_zind) {
+          lg_last_e = hit.energy;
+          lg_e_zind = dssdnum;
+          lg_last_y = strip;
+          lg_last_t = hit.time;
+        }
+        else if(dssdnum == lg_e_zind && hit.energy > lg_last_e) {
+          lg_last_e = hit.energy;
+          lg_last_y = strip;
+          lg_last_t = hit.time;
+        }
+      }
+    }
+    
+    // logic to decide implant vs decay
+    // implant when above beta threshold in HG
+    if(e_max[0]>beta->upperthresh && lg_last_e > implant->lowerthresh) {
+      implant->tke = lg_tke;
+      implant->time = lg_last_t;
+      implant->zpos = lg_e_zind;
+      implant->xpos = xpos[lg_e_zind];
+      implant->ypos = lg_last_y;
+      implant->valid = (implant->xpos != -1 && implant->ypos != -1);
+      implant->xpos0 = xpos[0];
+      implant->ypos0 = ypos[0]; // technically this is from MG, but should be the same 
+    }
+    else if(e_max[0]<=beta->upperthresh){
+      // decay when below beta threshold in HG
+      beta->energy = e_max[0];
+      beta->zpos = e_max_zloc[0];
+      beta->xpos = xpos[e_max_zloc[0]];
+      beta->ypos = ypos[e_max_zloc[0]];
+      beta->time = e_max_time[0];
+      beta->valid = (beta->xpos != -1 && beta->ypos != -1);
+    }
+
+    return;
+  }
+
+  DSSDImplant::DSSDImplant()
+    : TOF(0), dE(0), time(0), start(0), stop(0), xpos(-1), ypos(-1), zpos(-1), present(false), valid(false), nHits(0), lowerthresh(1) {
+    }
+
+  void DSSDImplant::Reset() {
+    valid = false;
+    validCut = false;
+    nHits = 0; 
+    xpos = -1;
+    ypos = -1;
+    zpos = -1;
+    xpos0 = -1;
+    ypos0 = -1;
+    energy = 0;
+    tke = 0;
+    time = 0;
+    start = 0;
+    stop = 0;
+    TOF = 0;
+    dE = 0;
+    dE2 = 0;
+    return;
+  }
+
+  DSSDBeta::DSSDBeta()
+    : energy(0), time(0), tdiff(-999), xpos(-1), ypos(-1), zpos(-1), present(false), valid(false), nHits(0), upperthresh(60000) {
+    }
+
+  void DSSDBeta::Reset() {
+    valid = false;
+    nHits = 0; 
+    xpos = -1;
+    ypos = -1;
+    zpos = -1;
+    energy = 0;
+    time = 0;
+    return;
+  }
   
   Beta::Beta() : nCuts(0), time(0), present(false), valid(false), nHits(0), tdiff(-999), tracelen(0), upperthresh(60000) {
     for (int i=0; i<5; ++i) {

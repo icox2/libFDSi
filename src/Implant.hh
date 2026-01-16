@@ -8,6 +8,10 @@
 #include "Definitions.hh"
 
 namespace FDSi {
+  const int MAX_DSSDS = 2;
+  const int NUM_GAINS = 3; // HG, MG, LG
+  const int MAX_DSSD_STRIPS = 128;
+
   class ImplantChannel {
     public:
       virtual void SetMeas(PIXIE::Measurement &meas, int indx) {}
@@ -123,6 +127,118 @@ namespace FDSi {
     void Reset();
   };
 
+  class DSSDConf {
+  public:
+    int numStrips; // Total number of DSSD strips
+    std::string conf_name;
+  };
+
+  struct DSSDhit {
+    int indx; // strip index combines DSSD number and gain 
+    double energy;
+    unsigned long long time;
+  };
+
+  class DSSDBeta : ImplantChannel {
+  public:
+    unsigned long long time;
+    
+    // Get the largest energy from front (HG), back (MG) and back (LG)
+    // Ideally for implants, best TKE resolution will be the LG
+    // front (HG) should saturate.. energy not needed but strip # is..
+    // Arranged by [DSSD][Gain][Strip]
+    double energy; // decay energy from HG
+
+    // xpos determined by strip with highest energy (or saturated) from HG 
+    int xpos;
+    // ypos determined by strip with highest energy (or saturated) from LG 
+    int ypos;
+    // tells which dssd the imp was detected in (last along beam to give signal)
+    int zpos; 
+    // position calibration should not be needed..
+
+    double upperthresh;
+
+    bool present = false;
+    bool valid = false;
+    int nHits = 0;
+
+    double tdiff = -999; //correlation time
+    int nCuts;
+    int firstCut;
+    int cutIDs[MAX_BETACUTS];
+    double tdiffs[MAX_BETACUTS];
+  
+    bool promptGamma;
+    int gammaIndex;
+    double gammaEnergy;
+
+  public:
+    DSSDBeta();
+
+    void Reset();
+  };
+
+  class DSSDImplant : ImplantChannel {
+  public:
+    double TOF;
+    double dE;
+    double dE2; 
+    unsigned long long time;
+
+    unsigned long long start;
+    unsigned long long stop;
+    
+    // Get the largest energy from front (HG), back (MG) and back (LG)
+    // Ideally for implants, best TKE resolution will be the LG
+    // front (HG) should saturate.. energy not needed but strip # is..
+    double energy; // total implant energy from LG
+    double tke;
+
+    // xpos determined by strip with highest energy (or saturated) from HG 
+    int xpos;
+    // ypos determined by strip with highest energy (or saturated) from LG 
+    int ypos;
+    // tells which dssd the imp was detected in (last along beam to give signal)
+    int zpos; 
+    // also store the first DSSD x-y to track beam path
+    int xpos0;
+    int ypos0;
+
+    double lowerthresh = 1;
+
+    bool present = false;
+    bool validTOF = false;
+    bool valid = false;
+    bool validCut = false;
+    int nHits = 0;
+    int cutID = 0;
+  
+    bool promptGamma;
+    int gammaIndex;
+    double gammaEnergy;
+
+  public:
+    DSSDImplant();
+
+    void Reset();
+  };
+
+  class DSSD : ImplantChannel {
+    public:
+      std::vector<DSSDhit> hits;
+      double thresh[MAX_DSSDS][NUM_GAINS][MAX_DSSD_STRIPS]; // thresholds for individual strips
+      double upperthresh[NUM_GAINS]; // upper threshold for decay
+      
+      DSSD();
+      void SetMeas(PIXIE::Measurement &meas, int indx);
+      
+      // Take in both beta and implant then fill corresponding info
+      void DSSDHitAnalysis(DSSDBeta *beta, DSSDImplant *implant);
+
+      void Reset(){ hits.clear(); }
+  };
+
   class Beta : ImplantChannel {
     public:
       unsigned long long time = 0;
@@ -212,7 +328,6 @@ namespace FDSi {
     void Calibrate(int type, pspmtCal &cal);
     void Reset();
   };
-
   
   class IonTrigger : ImplantChannel { 
     public:
@@ -295,13 +410,19 @@ namespace FDSi {
     Implant *imps;
     SiPMImplant *sipmImps;
     SiPMBeta *sipmBetas;
+    DSSDImplant *dssdImps;
+    DSSDBeta *dssdBetas;
     Beta *betas;
 
     bool sipm_present = false;
+    bool dssd_present = false;
     Beta *beta = NULL;
     Implant *imp = NULL;
     SiPMImplant *sipmImp = NULL;
     SiPMBeta *sipmBeta = NULL;
+    DSSD *dssd = NULL; // this dssd only stores the hits which are processed later 
+    DSSDBeta *dssdBeta = NULL;
+    DSSDImplant *dssdImp = NULL;
 
       IonTrigger *fit;     
       IonTrigger *rit;     
@@ -315,9 +436,9 @@ namespace FDSi {
 
     public:
       ImplantEvent();
-    ImplantEvent(int nst, bool sipm = false);
+    ImplantEvent(int nst, bool sipm = false, bool dssd_pres = false);
       ImplantEvent(int nPins, int nScints, int nPPACs);
-    void Init(int nst, bool sipm = false);
+    void Init(int nst, bool sipm = false, bool dssd_pres = false);
       void ReadConf(std::string conffile);
       void Set(PIXIE::Measurement &meas) {
         ImplantChannel **ch = implantMap[meas.crateID][meas.slotID][meas.channelNumber];
@@ -329,7 +450,9 @@ namespace FDSi {
       }
       void SetBetaThresh(int indx, float val);
       void SetImplantThresh(int indx, float val);
+      void SetDSSDThresh(int indx, float val);
     void SetPPACThresh(int indx, int subindx, float val);
+
       void Reset();
   };
 
