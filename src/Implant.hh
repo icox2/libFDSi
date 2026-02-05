@@ -8,9 +8,9 @@
 #include "Definitions.hh"
 
 namespace FDSi {
-  const int MAX_DSSDS = 2;
+  const int MAX_DSSDS = 1;
   const int NUM_GAINS = 3; // HG, MG, LG
-  const int MAX_DSSD_STRIPS = 128;
+  const int MAX_DSSD_STRIPS = 64;
 
   class ImplantChannel {
     public:
@@ -41,6 +41,36 @@ namespace FDSi {
       float interp(float val, float *x, float *y);
       std::pair<float,float> interp2(float x, float y, float x1, float y1, float x2, float y2, float x3, float y3, float x4, float y4);
       std::pair<float,float> cal(float en, float x, float y); 
+  };
+
+  class dssdCal {
+    public:
+      double p0[MAX_DSSDS][NUM_GAINS][MAX_DSSD_STRIPS] = {0};
+      double p1[MAX_DSSDS][NUM_GAINS][MAX_DSSD_STRIPS] = {1}; // default to rawen
+      double p2[MAX_DSSDS][NUM_GAINS][MAX_DSSD_STRIPS] = {0};
+    public:
+      dssdCal(std::string calfile){
+        std::ifstream fin(calfile.c_str());
+        std::string line;
+        
+        while(std::getline(fin,line)){
+          if(line.length()==0 || line[0]=='#')
+            continue;
+          std::stringstream sline(line);
+          int indx;
+          double c0=0.;
+          double c1=1.;
+          double c2=0.;
+          sline>>indx>>c0>>c1>>c2;
+          int dssdnum = indx/(MAX_DSSD_STRIPS*NUM_GAINS);
+          // 0=HG, 1=MG, 2=LG
+          int gain = (indx/MAX_DSSD_STRIPS)%NUM_GAINS;
+          int strip = indx%MAX_DSSD_STRIPS;
+          p0[dssdnum][gain][strip] = c0;
+          p1[dssdnum][gain][strip] = c1;
+          p2[dssdnum][gain][strip] = c2;
+        }
+      };
   };
 
   class Implant : ImplantChannel {
@@ -136,6 +166,7 @@ namespace FDSi {
   struct DSSDhit {
     int indx; // strip index combines DSSD number and gain 
     double energy;
+    double rawenergy;
     unsigned long long time;
   };
 
@@ -237,6 +268,7 @@ namespace FDSi {
       void DSSDHitAnalysis(DSSDBeta *beta, DSSDImplant *implant);
 
       void Reset(){ hits.clear(); }
+      void Calibrate(const dssdCal &calpars);
   };
 
   class Beta : ImplantChannel {

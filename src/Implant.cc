@@ -397,10 +397,26 @@ namespace FDSi {
 
   void DSSD::SetMeas(PIXIE::Measurement &meas, int indx) {
     DSSDhit hit;
+    hit.rawenergy = meas.eventEnergy;
+    // default to the raw energy unless calibrated
     hit.energy = meas.eventEnergy;
     hit.time = meas.eventTime;
     hit.indx = indx;
     hits.push_back(hit);
+    return;
+  }
+
+  void DSSD::Calibrate(const dssdCal &calpars){
+    for(auto &hit: hits){
+      int dssdnum = hit.indx/(MAX_DSSD_STRIPS*NUM_GAINS);
+      // 0=HG, 1=MG, 2=LG
+      int gain = (hit.indx/MAX_DSSD_STRIPS)%NUM_GAINS;
+      int strip = hit.indx%MAX_DSSD_STRIPS;
+      double p0 = calpars.p0[dssdnum][gain][strip];
+      double p1 = calpars.p1[dssdnum][gain][strip];
+      double p2 = calpars.p2[dssdnum][gain][strip];
+      hit.energy = p0+p1*hit.rawenergy+p2*hit.rawenergy*hit.rawenergy;
+    }
     return;
   }
 
