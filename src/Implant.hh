@@ -8,486 +8,522 @@
 #include "Definitions.hh"
 
 namespace FDSi {
-  const int MAX_DSSDS = 1;
-  const int NUM_GAINS = 3; // HG, MG, LG
-  const int MAX_DSSD_STRIPS = 64;
+const int MAX_DSSDS = 2;
+const int NUM_GAINS = 3; // HG, MG, LG
+const int MAX_DSSD_STRIPS = 64;
 
-  class ImplantChannel {
-    public:
-      virtual void SetMeas(PIXIE::Measurement &meas, int indx) {}
-  };      
+class ImplantChannel {
+public:
+  virtual void SetMeas(PIXIE::Measurement &meas, int indx) {}
+};
 
-  class pspmtCal {
-    public:
-      bool loaded = false;
-      float *ens[2304];
-      float *posxs[2304];
-      float *posys[2304];
-      
-      float *cal_xposx;
-      float *cal_xposy;
-  
-      float *cal_yposx;
-      float *cal_yposy;
+class pspmtCal {
+public:
+  bool loaded = false;
+  float *ens[2304];
+  float *posxs[2304];
+  float *posys[2304];
 
-      int lens[2304];
-    public:
-      pspmtCal() : loaded(false) { cal_xposx=new float[128*48*48]; cal_xposy=new float[128*48*48]; cal_yposx=new float[128*48*48]; cal_yposy=new float[128*48*48];} ;
-      void read_calgraphs(std::string file);
-      void make_map();
-      std::pair<float,float> interp_en(float val, int xind, int yind);
-      int find_indx(float x, float y, int ien, int axis);
+  float *cal_xposx;
+  float *cal_xposy;
 
-      float interp(float val, float *x, float *y);
-      std::pair<float,float> interp2(float x, float y, float x1, float y1, float x2, float y2, float x3, float y3, float x4, float y4);
-      std::pair<float,float> cal(float en, float x, float y); 
+  float *cal_yposx;
+  float *cal_yposy;
+
+  int lens[2304];
+
+public:
+  pspmtCal() : loaded(false) {
+    cal_xposx = new float[128 * 48 * 48];
+    cal_xposy = new float[128 * 48 * 48];
+    cal_yposx = new float[128 * 48 * 48];
+    cal_yposy = new float[128 * 48 * 48];
   };
+  void read_calgraphs(std::string file);
+  void make_map();
+  std::pair<float, float> interp_en(float val, int xind, int yind);
+  int find_indx(float x, float y, int ien, int axis);
 
-  class dssdCal {
-    public:
-      double p0[MAX_DSSDS][NUM_GAINS][MAX_DSSD_STRIPS] = {0};
-      double p1[MAX_DSSDS][NUM_GAINS][MAX_DSSD_STRIPS] = {1}; // default to rawen
-      double p2[MAX_DSSDS][NUM_GAINS][MAX_DSSD_STRIPS] = {0};
-    public:
-      dssdCal(std::string calfile){
-        std::ifstream fin(calfile.c_str());
-        std::string line;
-        
-        while(std::getline(fin,line)){
-          if(line.length()==0 || line[0]=='#')
-            continue;
-          std::stringstream sline(line);
-          int indx;
-          double c0=0.;
-          double c1=1.;
-          double c2=0.;
-          sline>>indx>>c0>>c1>>c2;
-          int dssdnum = indx/(MAX_DSSD_STRIPS*NUM_GAINS);
-          // 0=HG, 1=MG, 2=LG
-          int gain = (indx/MAX_DSSD_STRIPS)%NUM_GAINS;
-          int strip = indx%MAX_DSSD_STRIPS;
-          p0[dssdnum][gain][strip] = c0;
-          p1[dssdnum][gain][strip] = c1;
-          p2[dssdnum][gain][strip] = c2;
-        }
-      };
+  float interp(float val, float *x, float *y);
+  std::pair<float, float> interp2(float x, float y, float x1, float y1,
+                                  float x2, float y2, float x3, float y3,
+                                  float x4, float y4);
+  std::pair<float, float> cal(float en, float x, float y);
+};
+
+class dssdCal {
+public:
+  double p0[MAX_DSSDS][NUM_GAINS][MAX_DSSD_STRIPS] = {0};
+  double p1[MAX_DSSDS][NUM_GAINS][MAX_DSSD_STRIPS] = {1}; // default to rawen
+  double p2[MAX_DSSDS][NUM_GAINS][MAX_DSSD_STRIPS] = {0};
+
+public:
+  dssdCal(std::string calfile) {
+    std::ifstream fin(calfile.c_str());
+    std::string line;
+
+    while (std::getline(fin, line)) {
+      if (line.length() == 0 || line[0] == '#')
+        continue;
+      std::stringstream sline(line);
+      int indx;
+      double c0 = 0.;
+      double c1 = 1.;
+      double c2 = 0.;
+      sline >> indx >> c0 >> c1 >> c2;
+      int dssdnum = indx / (MAX_DSSD_STRIPS * NUM_GAINS);
+      // 0=HG, 1=MG, 2=LG
+      int gain = (indx / MAX_DSSD_STRIPS) % NUM_GAINS;
+      int strip = indx % MAX_DSSD_STRIPS;
+      p0[dssdnum][gain][strip] = c0;
+      p1[dssdnum][gain][strip] = c1;
+      p2[dssdnum][gain][strip] = c2;
+    }
   };
+};
 
-  class Implant : ImplantChannel {
-    public:
-      double TOF;
-      double dE;
-      double dE2; 
-      unsigned long long time;
+class Implant : ImplantChannel {
+public:
+  double TOF;
+  double dE;
+  double dE2;
+  unsigned long long time;
 
-      double energy[3][5];
+  double energy[3][5];
 
-      double xpos[3];
-      double ypos[3];
-      double xcal[3];
-      double ycal[3];
+  double xpos[3];
+  double ypos[3];
+  double xcal[3];
+  double ycal[3];
 
-      double thresh[5];
-      int upperthresh;
+  double thresh[5];
+  int upperthresh;
 
-      bool present = false;
-      bool valid = false;
-      bool validTOF = false;
-      bool validCut = false;
-      int nHits = 0;
-      int cutID = 0;
+  bool present = false;
+  bool valid = false;
+  bool validTOF = false;
+  bool validCut = false;
+  int nHits = 0;
+  int cutID = 0;
 
-      unsigned long long start;
-      unsigned long long stop;
+  unsigned long long start;
+  unsigned long long stop;
 
-      int fired[5];
+  int fired[5];
 
-      uint32_t tracelen;
-      uint16_t *trace; 
-    public:
-      Implant();
-      void SetMeas(PIXIE::Measurement &meas, int indx);
-      int firedAnodes();
-      int firedDynode();
-      int EnergySum(int type);
-      int SetPos(int type, pspmtCal &cal);
-      void Calibrate(int type, pspmtCal &cal);
-      void Reset();
-  };
+  uint32_t tracelen;
+  uint16_t *trace;
 
-  class SiPMImplant : ImplantChannel {
-  public:
-    double TOF;
-    double dE;
-    unsigned long long time;
+public:
+  Implant();
+  void SetMeas(PIXIE::Measurement &meas, int indx);
+  int firedAnodes();
+  int firedDynode();
+  int EnergySum(int type);
+  int SetPos(int type, pspmtCal &cal);
+  void Calibrate(int type, pspmtCal &cal);
+  void Reset();
+};
 
-    int energy[8][8];
-    int dynodeEn;
-    int dynodeFired;
-    int nFired;
+class SiPMImplant : ImplantChannel {
+public:
+  double TOF;
+  double dE;
+  unsigned long long time;
 
-    double xpos;
-    double ypos;
-    double xcal;
-    double ycal;
+  int energy[8][8];
+  int dynodeEn;
+  int dynodeFired;
+  int nFired;
 
-    double thresh;
-    int upperthresh;
+  double xpos;
+  double ypos;
+  double xcal;
+  double ycal;
 
-    bool present = false;
-    bool valid = false;
-    bool validCut = false;
-    int nHits = 0;
-    int cutID = 0;
+  double thresh;
+  int upperthresh;
 
-    int fired[8][8];
+  bool present = false;
+  bool valid = false;
+  bool validCut = false;
+  int nHits = 0;
+  int cutID = 0;
 
-    uint32_t tracelen;
-    uint16_t *trace; 
-  public:
-    SiPMImplant();
-    void SetMeas(PIXIE::Measurement &meas, int indx);
-    void SetDynodeMeas(PIXIE::Measurement &meas);
-    void SetAnodeMeas(PIXIE::Measurement &meas, int indx);
-    int firedAnodes();
-    int firedDynode();
-    int EnergySum();
-    int SetPos();
-    void Calibrate(int type, pspmtCal &cal);
-    void Reset();
-  };
+  int fired[8][8];
 
-  class DSSDConf {
-  public:
-    int numStrips; // Total number of DSSD strips
-    std::string conf_name;
-  };
+  uint32_t tracelen;
+  uint16_t *trace;
 
-  struct DSSDhit {
-    int indx; // strip index combines DSSD number and gain 
-    double energy;
-    double rawenergy;
-    unsigned long long time;
-  };
+public:
+  SiPMImplant();
+  void SetMeas(PIXIE::Measurement &meas, int indx);
+  void SetDynodeMeas(PIXIE::Measurement &meas);
+  void SetAnodeMeas(PIXIE::Measurement &meas, int indx);
+  int firedAnodes();
+  int firedDynode();
+  int EnergySum();
+  int SetPos();
+  void Calibrate(int type, pspmtCal &cal);
+  void Reset();
+};
 
-  class DSSDBeta : ImplantChannel {
-  public:
-    unsigned long long time;
-    
-    // Get the largest energy from front (HG), back (MG) and back (LG)
-    // Ideally for implants, best TKE resolution will be the LG
-    // front (HG) should saturate.. energy not needed but strip # is..
-    // Arranged by [DSSD][Gain][Strip]
-    double energy; // decay energy from HG
+class DSSDConf {
+public:
+  int numStrips; // Total number of DSSD strips
+  std::string conf_name;
+};
 
-    // xpos determined by strip with highest energy (or saturated) from HG 
-    int xpos;
-    // ypos determined by strip with highest energy (or saturated) from LG 
-    int ypos;
-    // tells which dssd the imp was detected in (last along beam to give signal)
-    int zpos; 
-    // position calibration should not be needed..
+struct DSSDhit {
+  int indx; // strip index combines DSSD number and gain
+  double energy;
+  unsigned int rawenergy;
+  unsigned long long time;
+  int outOfRange;
+  uint32_t tracelen;
+  uint16_t *trace;
+  uint32_t QDCSums[8];
+};
 
-    double upperthresh;
+class DSSDBeta : ImplantChannel {
+public:
+  unsigned long long time;
 
-    bool present = false;
-    bool valid = false;
-    int nHits = 0;
+  // Get the largest energy from front (HG), back (MG) and back (LG)
+  // Ideally for implants, best TKE resolution will be the LG
+  // front (HG) should saturate.. energy not needed but strip # is..
+  // Arranged by [DSSD][Gain][Strip]
+  double energy; // decay energy from HG
+  double bkenergy;
 
-    double tdiff = -999; //correlation time
-    int nCuts;
-    int firstCut;
-    int cutIDs[MAX_BETACUTS];
-    double tdiffs[MAX_BETACUTS];
-  
-    bool promptGamma;
-    int gammaIndex;
-    double gammaEnergy;
+  // xpos determined by strip with highest energy (or saturated) from HG
+  int xpos = -1;
+  // ypos determined by strip with highest energy (or saturated) from LG
+  int ypos = -1;
+  // tells which dssd the imp was detected in (last along beam to give signal)
+  int zpos = -1;
+  // position calibration should not be needed..
 
-  public:
-    DSSDBeta();
+  double upperthresh;
 
-    void Reset();
-  };
+  bool present = false;
+  bool valid = false;
+  int nHits = 0;
 
-  class DSSDImplant : ImplantChannel {
-  public:
-    double TOF;
-    double dE;
-    double dE2; 
-    unsigned long long time;
+  double tdiff = -999; // correlation time
+  int nCuts;
+  int firstCut;
+  int cutIDs[MAX_BETACUTS];
+  double tdiffs[MAX_BETACUTS];
 
-    unsigned long long start;
-    unsigned long long stop;
-    
-    // Get the largest energy from front (HG), back (MG) and back (LG)
-    // Ideally for implants, best TKE resolution will be the LG
-    // front (HG) should saturate.. energy not needed but strip # is..
-    double energy; // total implant energy from LG
-    double tke;
+  bool promptGamma;
+  int gammaIndex;
+  double gammaEnergy;
 
-    // xpos determined by strip with highest energy (or saturated) from HG 
-    int xpos;
-    // ypos determined by strip with highest energy (or saturated) from LG 
-    int ypos;
-    // tells which dssd the imp was detected in (last along beam to give signal)
-    int zpos; 
-    // also store the first DSSD x-y to track beam path
-    int xpos0;
-    int ypos0;
+  uint32_t xtracelen;
+  uint16_t *xtrace;
+  uint32_t ytracelen;
+  uint16_t *ytrace;
 
-    double lowerthresh = 1;
+public:
+  DSSDBeta();
 
-    bool present = false;
-    bool validTOF = false;
-    bool valid = false;
-    bool validCut = false;
-    int nHits = 0;
-    int cutID = 0;
-  
-    bool promptGamma;
-    int gammaIndex;
-    double gammaEnergy;
+  void Reset();
+};
 
-  public:
-    DSSDImplant();
+class DSSDImplant : ImplantChannel {
+public:
+  double TOF;
+  double dE;
+  double dE2;
+  unsigned long long time;
 
-    void Reset();
-  };
+  unsigned long long start;
+  unsigned long long stop;
 
-  class DSSD : ImplantChannel {
-    public:
-      std::vector<DSSDhit> hits;
-      double thresh[MAX_DSSDS][NUM_GAINS][MAX_DSSD_STRIPS]; // thresholds for individual strips
-      double upperthresh[NUM_GAINS]; // upper threshold for decay
-      
-      DSSD();
-      void SetMeas(PIXIE::Measurement &meas, int indx);
-      
-      // Take in both beta and implant then fill corresponding info
-      void DSSDHitAnalysis(DSSDBeta *beta, DSSDImplant *implant);
+  // Get the largest energy from front (HG), back (MG) and back (LG)
+  // Ideally for implants, best TKE resolution will be the LG
+  // front (HG) should saturate.. energy not needed but strip # is..
+  double energy;  // implant energy from LG
+  double energy0; // implant energy from LG dssd 0 always
+  double energy1; // implant energy from LG dssd 1 always
+  double tke;
 
-      void Reset(){ hits.clear(); }
-      void Calibrate(const dssdCal &calpars);
-  };
+  // xpos determined by strip with highest energy (or saturated) from HG
+  int xpos;
+  // ypos determined by strip with highest energy (or saturated) from LG
+  int ypos;
+  // tells which dssd the imp was detected in (last along beam to give signal)
+  int zpos;
+  // also store the first DSSD x-y to track beam path
+  int xpos0;
+  int ypos0;
+  // also for second DSSD x-y
+  int xpos1;
+  int ypos1;
 
-  class Beta : ImplantChannel {
-    public:
-      unsigned long long time = 0;
-      bool present = false;
-      bool valid = false;
-      int nHits = 0;
-      double tdiff = -999; //correlation time
-      int nCuts;
-      int firstCut;
-      int cutIDs[MAX_BETACUTS];
-      double tdiffs[MAX_BETACUTS];
+  double lowerthresh = 1;
 
-      double energy[3][5];
-      int fired[5];
+  bool present = false;
+  bool validTOF = false;
+  bool valid = false;
+  bool validCut = false;
+  int nHits = 0;
+  int cutID = 0;
 
-      double xpos[3];
-      double ypos[3];
-      double xcal[3];
-      double ycal[3];
+  bool promptGamma;
+  int gammaIndex;
+  double gammaEnergy;
 
-      double thresh[5];
-      int upperthresh;
+  uint32_t xtracelen;
+  uint16_t *xtrace;
+  uint32_t ytracelen;
+  uint16_t *ytrace;
 
-      uint16_t *trace[5];
-      int tracelen;
-    
-      bool promptGamma;
-      int gammaIndex;
-      double gammaEnergy;
+public:
+  DSSDImplant();
 
-    public:
-      Beta();
-      void SetMeas(PIXIE::Measurement &meas, int indx);
-      int firedDynode();
-      int firedAnodes();
-      int EnergySum(int type);
-      void Reset();
-      int SetPos(int type, pspmtCal &cal);
-      void Calibrate(int type, pspmtCal &cal);
-  };
+  void Reset();
+};
 
-  class SiPMBeta : ImplantChannel {
-  public:
-    unsigned long long time;
+class DSSD : ImplantChannel {
+public:
+  std::vector<DSSDhit> hits;
+  double thresh[MAX_DSSDS][NUM_GAINS]
+               [MAX_DSSD_STRIPS]; // thresholds for individual strips
+  double upperthresh[NUM_GAINS];  // upper threshold for decay
 
-    int energy[8][8];
-    int dynodeEn;
-    int dynodeFired;
-    int nFired;
+  DSSD();
+  void SetMeas(PIXIE::Measurement &meas, int indx);
 
-    double xpos;
-    double ypos;
-    double xcal;
-    double ycal;
+  // Take in both beta and implant then fill corresponding info
+  void DSSDHitAnalysis(DSSDBeta *beta, DSSDImplant *implant);
 
-    double thresh;
-    int upperthresh;
+  void Reset() { hits.clear(); }
+  void Calibrate(const dssdCal &calpars);
+};
 
-    bool present = false;
-    bool valid = false;
-    bool validCut = false;
-    int nHits;
-    double tdiff = -999; //correlation time
-    int nCuts;
-    int firstCut;
-    int cutIDs[MAX_BETACUTS];
-    double tdiffs[MAX_BETACUTS];
+class Beta : ImplantChannel {
+public:
+  unsigned long long time = 0;
+  bool present = false;
+  bool valid = false;
+  int nHits = 0;
+  double tdiff = -999; // correlation time
+  int nCuts;
+  int firstCut;
+  int cutIDs[MAX_BETACUTS];
+  double tdiffs[MAX_BETACUTS];
 
-    int fired[8][8];
+  double energy[3][5];
+  int fired[5];
 
-    uint32_t tracelen;
-    uint16_t *trace;
+  double xpos[3];
+  double ypos[3];
+  double xcal[3];
+  double ycal[3];
 
-    bool promptGamma;
-    int gammaIndex;
-    double gammaEnergy;
-    
-  public:
-    SiPMBeta();
-    void SetMeas(PIXIE::Measurement &meas, int indx);
-    void SetDynodeMeas(PIXIE::Measurement &meas);
-    void SetAnodeMeas(PIXIE::Measurement &meas, int indx);
-    int firedAnodes();
-    int firedDynode();
-    int EnergySum();
-    int SetPos();
-    void Calibrate(int type, pspmtCal &cal);
-    void Reset();
-  };
-  
-  class IonTrigger : ImplantChannel { 
-    public:
-      double thresh = 0;
-      double energy = 0;
-      unsigned long long time = 0;
-      bool valid = 0;
-      int fired = 0;
-    public:
-      IonTrigger() : energy(0), time(0), valid(false), fired(0) {}
-      void SetMeas(PIXIE::Measurement &meas, int indx);
-      void Reset();
-  };
+  double thresh[5];
+  int upperthresh;
 
-  class Pin : ImplantChannel {
-    public:
-      double energy[2];
-      unsigned long long time[2];
-      int fired[2];
-      bool valid = false;
-      double ecal;
+  uint16_t *trace[5];
+  int tracelen;
 
-      double gain;
-      double offset;
+  bool promptGamma;
+  int gammaIndex;
+  double gammaEnergy;
 
-      Pin();
-      void SetMeas(PIXIE::Measurement &meas, int indx);
-      void Reset();
-      void SetCal(double g, double o);
-      void Calibrate();
+public:
+  Beta();
+  void SetMeas(PIXIE::Measurement &meas, int indx);
+  int firedDynode();
+  int firedAnodes();
+  int EnergySum(int type);
+  void Reset();
+  int SetPos(int type, pspmtCal &cal);
+  void Calibrate(int type, pspmtCal &cal);
+};
 
-  };
+class SiPMBeta : ImplantChannel {
+public:
+  unsigned long long time;
 
-  class Scint : ImplantChannel {
-    public:
-      double energy[4];
-      unsigned long long time[4];
-      int fired[4];
-      double thresh[4];
-    int nchans = 4;
+  int energy[8][8];
+  int dynodeEn;
+  int dynodeFired;
+  int nFired;
 
-      unsigned long long avtime = 0;
-      bool valid = false;
-      Scint();
-    Scint(int nch);
-      void SetMeas(PIXIE::Measurement &meas, int indx);
-      void Reset();
-  };
+  double xpos;
+  double ypos;
+  double xcal;
+  double ycal;
 
-  class PPAC  : ImplantChannel {
-    public:
-      unsigned long long time[5];
-      double energy[5];
-    double thresh[5];
-      int fired[5];
-    int present;
+  double thresh;
+  int upperthresh;
 
-      unsigned long long avtime;
-      bool valid = false;
-      PPAC();
-    PPAC(int nch); 
-      void SetMeas(PIXIE::Measurement &meas, int indx);
-      void Reset();
-      void validate();
-  };
+  bool present = false;
+  bool valid = false;
+  bool validCut = false;
+  int nHits;
+  double tdiff = -999; // correlation time
+  int nCuts;
+  int firstCut;
+  int cutIDs[MAX_BETACUTS];
+  double tdiffs[MAX_BETACUTS];
 
-  class ImplantEvent {
-    public:
-      //maps (chan,slot,crate)-> index
-      int indexMap[FD_MAX_CRATES][FD_MAX_SLOTS_PER_CRATE][FD_MAX_CHANNELS_PER_BOARD];
-    int subIndexMap[FD_MAX_CRATES][FD_MAX_SLOTS_PER_CRATE][FD_MAX_CHANNELS_PER_BOARD];
-      //maps (ID)->(object,index)
-      ImplantChannel **implantMap[FD_MAX_CRATES][FD_MAX_SLOTS_PER_CRATE][FD_MAX_CHANNELS_PER_BOARD];
+  int fired[8][8];
 
-      int nStored;
-      int impCtr = 0;
-    int sipmImpCtr = 0;
-      int betaCtr = 0;
-    int sipmBetaCtr = 0;
-    Implant *imps;
-    SiPMImplant *sipmImps;
-    SiPMBeta *sipmBetas;
-    DSSDImplant *dssdImps;
-    DSSDBeta *dssdBetas;
-    Beta *betas;
+  uint32_t tracelen;
+  uint16_t *trace;
 
-    bool sipm_present = false;
-    bool dssd_present = false;
-    Beta *beta = NULL;
-    Implant *imp = NULL;
-    SiPMImplant *sipmImp = NULL;
-    SiPMBeta *sipmBeta = NULL;
-    DSSD *dssd = NULL; // this dssd only stores the hits which are processed later 
-    DSSDBeta *dssdBeta = NULL;
-    DSSDImplant *dssdImp = NULL;
+  bool promptGamma;
+  int gammaIndex;
+  double gammaEnergy;
 
-      IonTrigger *fit;     
-      IonTrigger *rit;     
-      Pin *pin[4];
-      Scint *scint[4];
-      PPAC *ppac[6];
+public:
+  SiPMBeta();
+  void SetMeas(PIXIE::Measurement &meas, int indx);
+  void SetDynodeMeas(PIXIE::Measurement &meas);
+  void SetAnodeMeas(PIXIE::Measurement &meas, int indx);
+  int firedAnodes();
+  int firedDynode();
+  int EnergySum();
+  int SetPos();
+  void Calibrate(int type, pspmtCal &cal);
+  void Reset();
+};
 
-      int nPins;
-      int nScints;
-      int nPPACs;
+class IonTrigger : ImplantChannel {
+public:
+  double thresh = 0;
+  double energy = 0;
+  unsigned long long time = 0;
+  bool valid = 0;
+  int fired = 0;
 
-    public:
-      ImplantEvent();
-    ImplantEvent(int nst, bool sipm = false, bool dssd_pres = false);
-      ImplantEvent(int nPins, int nScints, int nPPACs);
-    void Init(int nst, bool sipm = false, bool dssd_pres = false);
-      void ReadConf(std::string conffile);
-      void Set(PIXIE::Measurement &meas) {
-        ImplantChannel **ch = implantMap[meas.crateID][meas.slotID][meas.channelNumber];
-        int indx = indexMap[meas.crateID][meas.slotID][meas.channelNumber];
-        int subindx = subIndexMap[meas.crateID][meas.slotID][meas.channelNumber];
-        if (ch != NULL && subindx >= 0) {
-          (*ch)->SetMeas(meas, subindx);
-        }
-      }
-      void SetBetaThresh(int indx, float val);
-      void SetImplantThresh(int indx, float val);
-      void SetDSSDThresh(int indx, float val);
-    void SetPPACThresh(int indx, int subindx, float val);
+public:
+  IonTrigger() : energy(0), time(0), valid(false), fired(0) {}
+  void SetMeas(PIXIE::Measurement &meas, int indx);
+  void Reset();
+};
 
-      void Reset();
-  };
+class Pin : ImplantChannel {
+public:
+  double energy[2];
+  unsigned long long time[2];
+  int fired[2];
+  bool valid = false;
+  double ecal;
 
-}
+  double gain;
+  double offset;
+
+  Pin();
+  void SetMeas(PIXIE::Measurement &meas, int indx);
+  void Reset();
+  void SetCal(double g, double o);
+  void Calibrate();
+};
+
+class Scint : ImplantChannel {
+public:
+  double energy[4];
+  unsigned long long time[4];
+  int fired[4];
+  double thresh[4];
+  int nchans = 4;
+
+  unsigned long long avtime = 0;
+  bool valid = false;
+  Scint();
+  Scint(int nch);
+  void SetMeas(PIXIE::Measurement &meas, int indx);
+  void Reset();
+};
+
+class PPAC : ImplantChannel {
+public:
+  unsigned long long time[5];
+  double energy[5];
+  double thresh[5];
+  int fired[5];
+  int present;
+
+  unsigned long long avtime;
+  bool valid = false;
+  PPAC();
+  PPAC(int nch);
+  void SetMeas(PIXIE::Measurement &meas, int indx);
+  void Reset();
+  void validate();
+};
+
+class ImplantEvent {
+public:
+  // maps (chan,slot,crate)-> index
+  int indexMap[FD_MAX_CRATES][FD_MAX_SLOTS_PER_CRATE]
+              [FD_MAX_CHANNELS_PER_BOARD];
+  int subIndexMap[FD_MAX_CRATES][FD_MAX_SLOTS_PER_CRATE]
+                 [FD_MAX_CHANNELS_PER_BOARD];
+  // maps (ID)->(object,index)
+  ImplantChannel **implantMap[FD_MAX_CRATES][FD_MAX_SLOTS_PER_CRATE]
+                             [FD_MAX_CHANNELS_PER_BOARD];
+
+  int nStored;
+  int impCtr = 0;
+  int sipmImpCtr = 0;
+  int betaCtr = 0;
+  int sipmBetaCtr = 0;
+  Implant *imps;
+  SiPMImplant *sipmImps;
+  SiPMBeta *sipmBetas;
+  DSSDImplant *dssdImps;
+  DSSDBeta *dssdBetas;
+  Beta *betas;
+
+  bool sipm_present = false;
+  bool dssd_present = false;
+  Beta *beta = NULL;
+  Implant *imp = NULL;
+  SiPMImplant *sipmImp = NULL;
+  SiPMBeta *sipmBeta = NULL;
+  DSSD *dssd = NULL; // this dssd only stores the hits which are processed later
+  DSSDBeta *dssdBeta = NULL;
+  DSSDImplant *dssdImp = NULL;
+
+  IonTrigger *fit;
+  IonTrigger *rit;
+  Pin *pin[4];
+  Scint *scint[4];
+  PPAC *ppac[6];
+
+  int nPins;
+  int nScints;
+  int nPPACs;
+
+public:
+  ImplantEvent();
+  ImplantEvent(int nst, bool sipm = false, bool dssd_pres = false);
+  ImplantEvent(int nPins, int nScints, int nPPACs);
+  void Init(int nst, bool sipm = false, bool dssd_pres = false);
+  void ReadConf(std::string conffile);
+  void Set(PIXIE::Measurement &meas) {
+    ImplantChannel **ch =
+        implantMap[meas.crateID][meas.slotID][meas.channelNumber];
+    int indx = indexMap[meas.crateID][meas.slotID][meas.channelNumber];
+    int subindx = subIndexMap[meas.crateID][meas.slotID][meas.channelNumber];
+    if (ch != NULL && subindx >= 0) {
+      (*ch)->SetMeas(meas, subindx);
+    }
+  }
+  void SetBetaThresh(int indx, float val);
+  void SetImplantThresh(int indx, float val);
+  void SetDSSDThresh(int indx, float val);
+  void SetPPACThresh(int indx, int subindx, float val);
+
+  void Reset();
+};
+
+} // namespace FDSi
 
 #endif
